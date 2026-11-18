@@ -1,0 +1,10 @@
+node_modules/
+dist/
+assets/_$secret/ecs.components.js
+assets/_$secret/ecs.components.js.meta
+assets/_$secret/ecs.components.d.ts
+assets/_$secret/ecs.components.d.ts.meta
+assets/_$secret/ecs.worlds.js
+assets/_$secret/ecs.worlds.js.meta
+assets/_$secret/ecs.worlds.d.ts
+assets/_$secret/ecs.worlds.d.ts.meta

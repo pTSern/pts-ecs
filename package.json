@@ -1,0 +1,126 @@
+{
+    "package_version": 2,
+    "name": "pts-ecs",
+    "version": "1.0.0",
+    "author": "pTSern",
+    "editor": ">=3.8.8",
+    "description": "i18n:pts-ecs.description",
+    "main": "./bootstrap.js",
+    "scripts": {
+        "build": "tsc",
+        "watch": "tsc -w"
+    },
+    "devDependencies": {
+        "@cocos/creator-types": "^3.8.0",
+        "@types/node": "^18.17.1",
+        "typescript": "^5.8.2"
+    },
+    "panels": {
+        "default": {
+            "title": "pTS-ECS",
+            "type": "dockable",
+            "main": "dist/panel.js",
+            "size": {
+                "min-width": 720,
+                "min-height": 540
+            }
+        }
+    },
+    "contributions": {
+        "asset-db": {
+            "mount": {
+                "path": "./assets",
+                "readonly": true
+            }
+        },
+        "scene": {
+            "script": "./dist/scene.js"
+        },
+        "profile": {
+            "project": {
+                "components": {
+                    "default": [],
+                    "label": "ECS Components"
+                },
+                "worlds": {
+                    "default": [],
+                    "label": "ECS Worlds"
+                },
+                "btn_open_panel": {
+                    "default": false,
+                    "message": "open-panel",
+                    "label": "Open ECS Panel"
+                },
+                "btn_regenerate": {
+                    "default": false,
+                    "message": "regenerate",
+                    "label": "Regenerate Plugins & Types"
+                }
+            }
+        },
+        "project": {
+            "tab_1": {
+                "label": "pTS ECS",
+                "content": {
+                    "btn_open_panel": {
+                        "ui": "ui-button",
+                        "attributes": {
+                            "type": "primary",
+                            "label": "Open ECS Panel"
+                        }
+                    },
+                    "btn_regenerate": {
+                        "ui": "ui-button",
+                        "attributes": {
+                            "label": "Regenerate _$secret Plugins & .d.ts"
+                        }
+                    }
+                }
+            }
+        },
+        "messages": {
+            "open-panel": {
+                "methods": [
+                    "openPanel"
+                ]
+            },
+            "regenerate": {
+                "methods": [
+                    "regenerate"
+                ]
+            },
+            "get-schema": {
+                "methods": [
+                    "getSchema"
+                ]
+            },
+            "save-schema": {
+                "methods": [
+                    "saveSchema"
+                ]
+            },
+            "list-engine-types": {
+                "methods": [
+                    "listEngineTypes"
+                ]
+            },
+            "asset-db:ready": {
+                "methods": [
+                    "onAssetDbReady"
+                ]
+            }
+        },
+        "menu": [
+            {
+                "path": "i18n:menu.extension/pTS-ECS",
+                "label": "Open Panel",
+                "message": "open-panel"
+            },
+            {
+                "path": "i18n:menu.extension/pTS-ECS",
+                "label": "Regenerate Plugins & Types",
+                "message": "regenerate"
+            }
+        ]
+    }
+}

@@ -1,0 +1,30 @@
+{
+    "extends": "../base.tsconfig.json",
+    "compilerOptions": {
+        "noEmit": true,
+        "rootDir": "../../",
+        "target": "es2019",
+        "strict": false,
+        "types": [
+            "../../../temp/declarations/cc",
+            "../../../temp/declarations/jsb",
+            "../../../temp/declarations/cc.env",
+            "../../../temp/declarations/cc.custom-macro"
+        ],
+        "paths": {
+            "db://assets/*": [
+                "../../../assets/*"
+            ],
+            "db://pts-core/*": [
+                "../../pts-core/assets/*"
+            ],
+            "db://pts-ecs/*": [
+                "./*"
+            ]
+        }
+    },
+    "include": [
+        "**/*",
+        "../../pts-core/**/*.d.ts"
+    ]
+}
