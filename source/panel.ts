@@ -595,7 +595,8 @@ export const template = `
         <button class="tab-btn" data-tab="worlds">Worlds</button>
     </div>
     <div class="top-actions">
-        <button class="btn sm" id="btn-refresh-types" title="Rescan all cc.Component & cc.Asset subclasses">↻ Refresh Types</button>
+        <button class="btn sm" id="btn-refresh-schema" title="Reload latest Components & Worlds from profile">↻ Refresh Panel</button>
+        <button class="btn sm" id="btn-refresh-types" title="Rescan all cc.Component, cc.Asset & Enum types">↻ Refresh Types</button>
         <button class="btn sm" id="btn-regen">Regenerate All</button>
     </div>
 </div>
@@ -645,6 +646,7 @@ export const $ = {
     tabs: ".tabs",
     summaryBadge: "#summary-badge",
     statusBanner: "#status-banner",
+    btnRefreshSchema: "#btn-refresh-schema",
     btnRefreshTypes: "#btn-refresh-types",
     btnRegen: "#btn-regen",
     panelComponents: "#panel-components",
@@ -770,28 +772,102 @@ export const ready = async function (this: any) {
             `${state.schema.components.length} components · ${state.schema.worlds.length} worlds`;
     };
 
-    const loadSchema = async () => {
-        try {
-            const loaded = (await Editor.Message.request(PKG_NAME, "get-schema")) as IEcsSchemaProfile;
-            state.schema = {
-                components: Array.isArray(loaded?.components) ? loaded.components : [],
-                worlds: Array.isArray(loaded?.worlds) ? loaded.worlds : [],
-            };
-        } catch (e) {
-            state.schema = { components: [], worlds: [] };
+    const applyExternalSchema = (nextSchema: IEcsSchemaProfile, announceMsg?: string) => {
+        const prevCompName =
+            state.editingCompIndex !== null && state.editingCompIndex >= 0
+                ? state.schema.components[state.editingCompIndex]?.name || null
+                : null;
+        const prevWorldName =
+            state.editingWorldIndex !== null && state.editingWorldIndex >= 0
+                ? state.schema.worlds[state.editingWorldIndex]?.name || null
+                : null;
+
+        state.schema = {
+            components: Array.isArray(nextSchema?.components) ? nextSchema.components : [],
+            worlds: Array.isArray(nextSchema?.worlds) ? nextSchema.worlds : [],
+        };
+
+        // Reconcile existing component selection without clobbering an unsaved "new component" draft
+        if (state.editingCompIndex !== null && state.editingCompIndex >= 0) {
+            const newIdx = prevCompName
+                ? state.schema.components.findIndex((c) => c.name === prevCompName)
+                : -1;
+            if (newIdx >= 0) {
+                state.editingCompIndex = newIdx;
+                state.draftComp = JSON.parse(JSON.stringify(state.schema.components[newIdx]));
+                if (state.draftComp!.is_component === undefined) state.draftComp!.is_component = true;
+                if (!Array.isArray(state.draftComp!.extends)) state.draftComp!.extends = [];
+                state.draftCompWorlds = state.schema.worlds
+                    .filter((w) => w.components.includes(prevCompName!))
+                    .map((w) => w.name);
+            } else {
+                state.editingCompIndex = null;
+                state.draftComp = null;
+                state.draftCompWorlds = [];
+            }
         }
+
+        // Reconcile existing world selection without clobbering an unsaved "new world" draft
+        if (state.editingWorldIndex !== null && state.editingWorldIndex >= 0) {
+            const newWIdx = prevWorldName
+                ? state.schema.worlds.findIndex((w) => w.name === prevWorldName)
+                : -1;
+            if (newWIdx >= 0) {
+                state.editingWorldIndex = newWIdx;
+                state.draftWorld = JSON.parse(JSON.stringify(state.schema.worlds[newWIdx]));
+            } else {
+                state.editingWorldIndex = null;
+                state.draftWorld = null;
+            }
+        }
+
         updateSummary();
         renderCompList();
         renderCompEditor();
         renderWorldList();
         renderWorldEditor();
+
+        if (announceMsg) {
+            showBanner(announceMsg, false);
+        }
+    };
+
+    const loadSchema = async (announce = false) => {
+        try {
+            const loaded = (await Editor.Message.request(PKG_NAME, "get-schema")) as IEcsSchemaProfile;
+            applyExternalSchema(
+                loaded || { components: [], worlds: [] },
+                announce
+                    ? `Refreshed panel: ${(loaded?.components || []).length} component(s) & ${(loaded?.worlds || []).length} world(s).`
+                    : undefined
+            );
+        } catch {
+            applyExternalSchema({ components: [], worlds: [] });
+        }
+    };
+
+    let isSelfSaving = false;
+
+    (this as any)._onRequestUpdatePanel = async (incoming?: IEcsSchemaProfile) => {
+        if (isSelfSaving) return;
+        if (incoming && Array.isArray(incoming.components) && Array.isArray(incoming.worlds)) {
+            applyExternalSchema(incoming);
+        } else {
+            await loadSchema(false);
+        }
     };
 
     const persistSchema = async (next: IEcsSchemaProfile, okMsg: string): Promise<boolean> => {
-        const res = (await Editor.Message.request(PKG_NAME, "save-schema", next)) as {
-            ok: boolean;
-            errors?: string[];
-        };
+        isSelfSaving = true;
+        let res: { ok: boolean; errors?: string[] } | null = null;
+        try {
+            res = (await Editor.Message.request(PKG_NAME, "save-schema", next)) as {
+                ok: boolean;
+                errors?: string[];
+            };
+        } finally {
+            isSelfSaving = false;
+        }
         if (!res || !res.ok) {
             showBanner((res?.errors || ["Save failed"]).join("\n"), true);
             return false;
@@ -820,6 +896,10 @@ export const ready = async function (this: any) {
                 renderCompEditor();
             }
         });
+    });
+
+    this.$.btnRefreshSchema.addEventListener("click", async () => {
+        await loadSchema(true);
     });
 
     this.$.btnRefreshTypes.addEventListener("click", async () => {
@@ -2070,4 +2150,14 @@ export const close = function (this: any) {
         window.removeEventListener("focus", this._onPanelFocus);
         this._onPanelFocus = null;
     }
+    this._onRequestUpdatePanel = null;
+};
+
+export const methods: Record<string, (...args: any[]) => any> = {
+    onRequestUpdatePanel(this: any, incoming?: IEcsSchemaProfile) {
+        if (typeof this._onRequestUpdatePanel === "function") {
+            // Fire-and-forget async UI refresh (never blocks sender)
+            void this._onRequestUpdatePanel(incoming);
+        }
+    },
 };

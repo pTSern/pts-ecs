@@ -261,6 +261,13 @@ export function load(): void {
 
 export function unload(): void {}
 
+function notifyPanelUpdate(schema?: IEcsSchemaProfile): void {
+    try {
+        // Strictly fire-and-forget (non-blocking) so MCP/headless callers never wait on UI updates
+        Editor.Message.send(PKG_NAME, "request_to_update_panel", schema);
+    } catch {}
+}
+
 export const methods: Record<string, (...args: any[]) => any> = {
     openPanel() {
         Editor.Panel.open(PKG_NAME);
@@ -271,7 +278,9 @@ export const methods: Record<string, (...args: any[]) => any> = {
     },
 
     async regenerate() {
-        return await regenerateAll();
+        const res = await regenerateAll();
+        if (res.ok) notifyPanelUpdate();
+        return res;
     },
 
     async getSchema(): Promise<IEcsSchemaProfile> {
@@ -284,7 +293,9 @@ export const methods: Record<string, (...args: any[]) => any> = {
             return { ok: false, errors: validation.errors };
         }
         await writeProfileSchema(schema);
-        return await regenerateAll(schema);
+        const res = await regenerateAll(schema);
+        if (res.ok) notifyPanelUpdate(schema);
+        return res;
     },
 
     async listEngineTypes(): Promise<IEngineTypesPayload> {

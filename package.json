@@ -104,6 +104,11 @@
                     "listEngineTypes"
                 ]
             },
+            "request_to_update_panel": {
+                "methods": [
+                    "default.onRequestUpdatePanel"
+                ]
+            },
             "asset-db:ready": {
                 "methods": [
                     "onAssetDbReady"
