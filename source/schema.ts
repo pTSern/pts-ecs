@@ -164,6 +164,13 @@ export interface IPropDef {
 
 export interface IComponentDef {
     name: string;
+    /**
+     * Whether this definition is a real ECS component attachable to Worlds (default: true).
+     * Set to false for reusable base/struct types (e.g. Vec2) meant only to be extended or nested as properties.
+     */
+    is_component?: boolean;
+    /** Optional list of parent pTS-ECS component/struct names this definition extends. */
+    extends?: string[];
     props: IPropDef[];
 }
 

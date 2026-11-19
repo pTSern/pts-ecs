@@ -288,32 +288,85 @@ export const methods = {
         }
 
         // ─── 3. Tier 4: Inspect live in-memory project module exports via Editor.Module.importProjectModule ───
+        const getPtsEnumRegistry = (): any => {
+            const g: any = globalThis as any;
+            const w: any = typeof window !== "undefined" ? (window as any) : null;
+            const reg = g?.pTS?.__enums__ || w?.pTS?.__enums__;
+            return reg && typeof reg.forEach === "function" ? reg : null;
+        };
+
+        const unnamedOriginScript = new Map<any, string>();
         if (Array.isArray(scriptUrls) && typeof Editor !== "undefined" && Editor?.Module?.importProjectModule) {
             for (let i = 0; i < scriptUrls.length; i++) {
                 const dbUrl = scriptUrls[i];
                 if (!dbUrl || typeof dbUrl !== "string") continue;
                 try {
+                    const regBefore = getPtsEnumRegistry();
+                    const prevKeys = new Set<any>();
+                    if (regBefore) {
+                        regBefore.forEach((_: any, k: any) => prevKeys.add(k));
+                    }
+
                     const mod = await Editor.Module.importProjectModule(dbUrl);
-                    if (!mod || typeof mod !== "object") continue;
                     const modImportPath = dbUrl.replace(/\.ts$/, "");
-                    for (const expKey of Object.keys(mod)) {
-                        if (!expKey || expKey === "default" || expKey.startsWith("_")) continue;
-                        const expVal = mod[expKey];
-                        if (expVal && typeof expVal === "object" && isRegisteredEnum(expVal)) {
-                            registerEnumObj(
-                                expVal,
-                                expKey,
-                                false,
-                                `import(${JSON.stringify(modImportPath)}).${expKey}`,
-                            );
+                    const fileBase = modImportPath.split("/").pop() || "CustomEnum";
+
+                    if (mod && typeof mod === "object") {
+                        for (const expKey of Object.keys(mod)) {
+                            if (!expKey || expKey === "default" || expKey.startsWith("_")) continue;
+                            const expVal = mod[expKey];
+                            if (expVal && typeof expVal === "object" && isRegisteredEnum(expVal)) {
+                                registerEnumObj(
+                                    expVal,
+                                    expKey,
+                                    false,
+                                    `import(${JSON.stringify(modImportPath)}).${expKey}`,
+                                );
+                            }
                         }
+                    }
+
+                    // Tag any newly hooked unexported enum with its source script basename
+                    const regAfter = getPtsEnumRegistry();
+                    if (regAfter) {
+                        regAfter.forEach((_: any, k: any) => {
+                            if (!prevKeys.has(k) && !seenEnumObjs.has(k) && !unnamedOriginScript.has(k)) {
+                                unnamedOriginScript.set(k, fileBase);
+                            }
+                        });
                     }
                 } catch {}
             }
         }
 
-        // ─── 4. Any remaining hooked enums not yet named ───
+        // ─── 4. pLazy.enums hooker registry (`globalThis.pTS.__enums__`) ───
+        // Picks up every enum wrapped via `pLazy.enums(...)`, `pLazy.enums.create(...)`, or `pLazy.enums.register(...)`
         let anonIdx = 1;
+        const ptsEnumRegistry = getPtsEnumRegistry();
+        if (ptsEnumRegistry) {
+            ptsEnumRegistry.forEach((entry: any, enumObj: any) => {
+                if (!enumObj || typeof enumObj !== "object") return;
+                const entryName = typeof entry?.name === "string" && entry.name.trim() ? entry.name.trim() : "";
+                const entryTsType = typeof entry?.tsType === "string" && entry.tsType.trim() ? entry.tsType.trim() : "";
+
+                if (seenEnumObjs.has(enumObj)) {
+                    // Upgrade existing entry if pLazy.enums provided an explicit tsType
+                    const existingKey = seenEnumObjs.get(enumObj)!;
+                    const existing = enumMap.get(existingKey);
+                    if (existing && existing.tsType === "number" && entryTsType) {
+                        existing.tsType = entryTsType;
+                    }
+                    return;
+                }
+
+                const originHint = unnamedOriginScript.get(enumObj);
+                const resolvedName = entryName || (originHint ? `${originHint}_Enum` : `CustomEnum_${anonIdx++}`);
+                const resolvedTsType = entryTsType || "number";
+                registerEnumObj(enumObj, resolvedName, false, resolvedTsType);
+            });
+        }
+
+        // ─── 5. Any remaining cc.Enum hooked enums not yet named ───
         _hookedEnums.forEach((enumObj) => {
             if (!seenEnumObjs.has(enumObj)) {
                 registerEnumObj(enumObj, `CustomEnum_${anonIdx++}`, false, "number");

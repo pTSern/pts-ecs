@@ -27,13 +27,17 @@ export function isValidIdentifier(name: string): boolean {
 }
 
 /**
- * Detect circular direct (`complex === "single"`) nesting between ECS components.
+ * Detect circular direct (`complex === "single"`) nesting or `extends` inheritance between ECS components.
  * Returns cycle chain (e.g. ["A", "B", "A"]) or null if acyclic.
  */
 export function findComponentCycle(components: IComponentDef[]): string[] | null {
     const graph = new Map<string, string[]>();
     for (const c of components) {
         const deps: string[] = [];
+        for (const ext of c.extends || []) {
+            const ename = (ext || "").trim();
+            if (ename) deps.push(ename);
+        }
         for (const p of c.props) {
             if (p.kind === "component" && p.complex === "single") {
                 deps.push(p.type);
@@ -78,6 +82,7 @@ export function findComponentCycle(components: IComponentDef[]): string[] | null
 export function validateSchema(schema: IEcsSchemaProfile): IValidationResult {
     const errors: string[] = [];
     const compNames = new Set<string>();
+    const structNames = new Set<string>();
 
     // 1. Validate Components
     for (let i = 0; i < schema.components.length; i++) {
@@ -89,10 +94,32 @@ export function validateSchema(schema: IEcsSchemaProfile): IValidationResult {
             errors.push(`Duplicate component name "${cname}".`);
         } else {
             compNames.add(cname);
+            if (comp.is_component === false) {
+                structNames.add(cname);
+            }
         }
     }
 
     for (const comp of schema.components) {
+        // Validate `extends` (parent pTS-ECS components)
+        if (Array.isArray(comp.extends) && comp.extends.length > 0) {
+            const seenExt = new Set<string>();
+            for (const rawExt of comp.extends) {
+                const ename = String(rawExt ?? "").trim();
+                if (!ename) {
+                    errors.push(`Component "${comp.name}": extends entry cannot be empty.`);
+                } else if (ename === comp.name) {
+                    errors.push(`Component "${comp.name}": cannot extend itself.`);
+                } else if (!compNames.has(ename)) {
+                    errors.push(`Component "${comp.name}": extended component "${ename}" does not exist.`);
+                } else if (seenExt.has(ename)) {
+                    errors.push(`Component "${comp.name}": duplicate extends entry "${ename}".`);
+                } else {
+                    seenExt.add(ename);
+                }
+            }
+        }
+
         const propNames = new Set<string>();
         for (let j = 0; j < comp.props.length; j++) {
             const prop = comp.props[j];
@@ -159,6 +186,8 @@ export function validateSchema(schema: IEcsSchemaProfile): IValidationResult {
         for (const cname of w.components || []) {
             if (!compNames.has(cname)) {
                 errors.push(`World "${wname}": references missing component "${cname}".`);
+            } else if (structNames.has(cname)) {
+                errors.push(`World "${wname}": "${cname}" is marked as a non-component struct and cannot be registered in a world.`);
             }
         }
 

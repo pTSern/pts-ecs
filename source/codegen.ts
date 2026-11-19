@@ -120,16 +120,35 @@ export function generateComponentsJs(components: IComponentDef[]): string {
     ];
 
     for (const comp of components) {
-        if (comp.props.length === 0) {
-            lines.push(`    C[${JSON.stringify(comp.name)}] = function () { return {}; };`);
-        } else {
-            lines.push(`    C[${JSON.stringify(comp.name)}] = function () {`);
-            lines.push("        return {");
-            for (const prop of comp.props) {
-                lines.push(`            ${prop.name}: ${propDefaultExprJs(prop)},`);
+        const parents = Array.isArray(comp.extends)
+            ? comp.extends.map((e) => String(e ?? "").trim()).filter(Boolean)
+            : [];
+
+        if (parents.length === 0) {
+            if (comp.props.length === 0) {
+                lines.push(`    C[${JSON.stringify(comp.name)}] = function () { return {}; };`);
+            } else {
+                lines.push(`    C[${JSON.stringify(comp.name)}] = function () {`);
+                lines.push("        return {");
+                for (const prop of comp.props) {
+                    lines.push(`            ${prop.name}: ${propDefaultExprJs(prop)},`);
+                }
+                lines.push("        };");
+                lines.push("    };");
             }
-            lines.push("        };");
-            lines.push("    };");
+        } else {
+            const parentCalls = parents.map((p) => `C[${JSON.stringify(p)}]()`).join(", ");
+            if (comp.props.length === 0) {
+                lines.push(`    C[${JSON.stringify(comp.name)}] = function () { return Object.assign({}, ${parentCalls}); };`);
+            } else {
+                lines.push(`    C[${JSON.stringify(comp.name)}] = function () {`);
+                lines.push(`        return Object.assign({}, ${parentCalls}, {`);
+                for (const prop of comp.props) {
+                    lines.push(`            ${prop.name}: ${propDefaultExprJs(prop)},`);
+                }
+                lines.push("        });");
+                lines.push("    };");
+            }
         }
     }
 
@@ -150,7 +169,11 @@ export function generateComponentsDts(components: IComponentDef[]): string {
     ];
 
     for (const comp of components) {
-        lines.push(`        export interface I${comp.name} {`);
+        const parents = Array.isArray(comp.extends)
+            ? comp.extends.map((e) => String(e ?? "").trim()).filter(Boolean)
+            : [];
+        const extendsClause = parents.length > 0 ? ` extends ${parents.map((p) => `I${p}`).join(", ")}` : "";
+        lines.push(`        export interface I${comp.name}${extendsClause} {`);
         for (const prop of comp.props) {
             lines.push(`            ${prop.name}: ${propTypeDts(prop)};`);
         }
@@ -160,6 +183,7 @@ export function generateComponentsDts(components: IComponentDef[]): string {
 
     lines.push("        export interface IComponentMap {");
     for (const comp of components) {
+        if (comp.is_component === false) continue;
         lines.push(`            ${comp.name}: I${comp.name};`);
     }
     lines.push("        }");

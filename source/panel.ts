@@ -340,6 +340,74 @@ input:disabled, select:disabled {
     border-color: #2f6fed;
     background: rgba(47, 111, 237, 0.18);
 }
+.extends-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+}
+.extends-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: rgba(155, 107, 204, 0.18);
+    border: 1px solid rgba(155, 107, 204, 0.5);
+    color: #d7b8ff;
+}
+.extends-pill button {
+    border: none;
+    background: transparent;
+    color: #d7b8ff;
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 12px;
+    line-height: 1;
+}
+.extends-pill button:hover {
+    color: #ff9492;
+}
+.world-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: rgba(47, 111, 237, 0.18);
+    border: 1px solid rgba(47, 111, 237, 0.5);
+    color: #8ab4f8;
+}
+.world-pill button {
+    border: none;
+    background: transparent;
+    color: #8ab4f8;
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 12px;
+    line-height: 1;
+}
+.world-pill button:hover {
+    color: #ff9492;
+}
+.badge.purple {
+    background: rgba(155, 107, 204, 0.18);
+    color: #d7b8ff;
+}
+.inline-err {
+    display: none;
+    color: #ff9492;
+    font-size: 11px;
+    padding-left: 118px;
+}
+.inline-err.show {
+    display: block;
+}
+input.input-err {
+    border-color: #f85149 !important;
+}
 
 .code-preview {
     background: #161618;
@@ -606,6 +674,7 @@ interface IPanelState {
     engineEnumLookup: Map<string, IEngineEnumOption>;
     editingCompIndex: number | null; // null=none, -1=new, >=0=existing index
     draftComp: IComponentDef | null;
+    draftCompWorlds: string[];
     editingWorldIndex: number | null;
     draftWorld: IWorldDef | null;
 }
@@ -640,6 +709,7 @@ export const ready = async function (this: any) {
         engineEnumLookup: new Map(),
         editingCompIndex: null,
         draftComp: null,
+        draftCompWorlds: [],
         editingWorldIndex: null,
         draftWorld: null,
     };
@@ -782,6 +852,8 @@ export const ready = async function (this: any) {
 
         for (const { c, idx } of items) {
             const usedByWorlds = state.schema.worlds.filter((w) => w.components.includes(c.name)).length;
+            const extList = Array.isArray(c.extends) ? c.extends.filter(Boolean) : [];
+            const isComp = c.is_component !== false;
             const div = document.createElement("div");
             div.className = `list-item${state.editingCompIndex === idx ? " selected" : ""}`;
             div.innerHTML = `
@@ -792,7 +864,9 @@ export const ready = async function (this: any) {
                     </div>
                 </div>
                 <div class="item-meta">
+                    ${!isComp ? `<span class="badge amber" title="Base struct only — cannot be added to Worlds">Struct</span>` : ""}
                     <span class="badge">${c.props.length} props</span>
+                    ${extList.length > 0 ? `<span class="badge purple" title="Extends ${escHtml(extList.join(", "))}">↳ ${escHtml(extList.join(", "))}</span>` : ""}
                     ${usedByWorlds > 0 ? `<span class="badge blue">${usedByWorlds} world(s)</span>` : ""}
                 </div>
             `;
@@ -802,13 +876,23 @@ export const ready = async function (this: any) {
                 clearBanner();
                 state.editingCompIndex = idx;
                 state.draftComp = JSON.parse(JSON.stringify(state.schema.components[idx]));
+                if (state.draftComp!.is_component === undefined) state.draftComp!.is_component = true;
+                if (!Array.isArray(state.draftComp!.extends)) state.draftComp!.extends = [];
+                state.draftCompWorlds = state.schema.worlds
+                    .filter((w) => w.components.includes(c.name))
+                    .map((w) => w.name);
                 renderCompList();
                 renderCompEditor();
             });
             div.querySelector<HTMLButtonElement>("[data-del]")?.addEventListener("click", async (ev) => {
                 ev.stopPropagation();
                 const refByComps = state.schema.components
-                    .filter((other) => other.name !== c.name && other.props.some((p) => p.kind === "component" && p.type === c.name))
+                    .filter((other) =>
+                        other.name !== c.name && (
+                            other.props.some((p) => p.kind === "component" && p.type === c.name) ||
+                            (Array.isArray(other.extends) && other.extends.includes(c.name))
+                        )
+                    )
                     .map((other) => other.name);
                 const refByWorlds = state.schema.worlds
                     .filter((w) => w.components.includes(c.name))
@@ -1117,6 +1201,8 @@ export const ready = async function (this: any) {
         if (!pre || !state.draftComp) return;
         const previewComp: IComponentDef = {
             name: (state.draftComp.name || "NewComponent").trim() || "NewComponent",
+            is_component: state.draftComp.is_component !== false,
+            extends: Array.isArray(state.draftComp.extends) ? state.draftComp.extends.filter(Boolean) : [],
             props: state.draftComp.props.filter((p) => (p.name || "").trim().length > 0),
         };
         pre.textContent = generateComponentsDts([previewComp]);
@@ -1136,17 +1222,43 @@ export const ready = async function (this: any) {
         }
 
         const draft = state.draftComp;
+        if (draft.is_component === undefined) draft.is_component = true;
+        if (!Array.isArray(draft.extends)) draft.extends = [];
         const isNew = state.editingCompIndex === -1;
+        const isComp = draft.is_component !== false;
+        const selfOrigName = !isNew && state.editingCompIndex !== null
+            ? state.schema.components[state.editingCompIndex]?.name || ""
+            : "";
 
         pane.innerHTML = `
             <div class="section-card">
                 <div class="section-head">
-                    <span class="section-title">${isNew ? "New Component" : `Edit Component: ${escHtml(draft.name)}`}</span>
+                    <span class="section-title">${isNew ? "New Component" : `Edit ${isComp ? "Component" : "Struct"}: ${escHtml(draft.name)}`}</span>
                 </div>
                 <div class="field-row">
                     <span class="field-label">Component Name</span>
-                    <input class="grow" type="text" id="comp-name-input" value="${escHtml(draft.name)}" placeholder="e.g. Position, Health, Visual" />
+                    <input class="grow" type="text" id="comp-name-input" value="${escHtml(draft.name)}" placeholder="e.g. Position, Health, Vec2" />
                 </div>
+                <div class="inline-err" id="comp-name-err"></div>
+                <div class="field-row">
+                    <span class="field-label">Is Component</span>
+                    <label class="check-inline">
+                        <input type="checkbox" id="comp-is-component-check" ${isComp ? "checked" : ""} />
+                        <span>Attachable ECS Component (uncheck for reusable base/struct types like Vec2)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <div class="section-head">
+                    <span class="section-title" id="extends-title">Extends (${draft.extends.length})</span>
+                    <div class="item-btns">
+                        <button class="btn sm" id="btn-toggle-extends">${draft.extends.length > 0 ? "Hide List" : "Select..."}</button>
+                        <button class="btn sm" id="btn-clear-extends" ${draft.extends.length === 0 ? "disabled" : ""}>Clear</button>
+                    </div>
+                </div>
+                <div class="extends-pills" id="extends-pills"></div>
+                <div class="comp-checklist" id="extends-checklist" style="display:${draft.extends.length > 0 ? "grid" : "none"};"></div>
             </div>
 
             <div class="section-card">
@@ -1164,6 +1276,19 @@ export const ready = async function (this: any) {
                 <div class="prop-table" id="prop-rows"></div>
             </div>
 
+            <div class="section-card" id="comp-worlds-card" style="display:${isComp ? "flex" : "none"};">
+                <div class="section-head">
+                    <span class="section-title" id="comp-worlds-title">Add to Worlds (${state.draftCompWorlds.length})</span>
+                    <div class="item-btns">
+                        <button class="btn sm" id="btn-toggle-comp-worlds">${state.draftCompWorlds.length > 0 ? "Hide List" : "Select..."}</button>
+                        <button class="btn sm" id="btn-all-comp-worlds" ${state.schema.worlds.length === 0 ? "disabled" : ""}>All</button>
+                        <button class="btn sm" id="btn-clear-comp-worlds" ${state.draftCompWorlds.length === 0 ? "disabled" : ""}>Clear</button>
+                    </div>
+                </div>
+                <div class="extends-pills" id="comp-worlds-pills"></div>
+                <div class="comp-checklist" id="comp-worlds-checklist" style="display:${state.draftCompWorlds.length > 0 ? "grid" : "none"};"></div>
+            </div>
+
             <div class="section-card">
                 <div class="section-head">
                     <span class="section-title">Generated .d.ts Preview</span>
@@ -1178,8 +1303,190 @@ export const ready = async function (this: any) {
         `;
 
         const nameInput = pane.querySelector("#comp-name-input") as HTMLInputElement;
+        const isCompCheck = pane.querySelector("#comp-is-component-check") as HTMLInputElement;
+        const nameErrEl = pane.querySelector("#comp-name-err") as HTMLElement;
+        const saveCompBtn = pane.querySelector("#btn-save-comp") as HTMLButtonElement;
+        const extendsTitle = pane.querySelector("#extends-title") as HTMLElement;
+        const extendsPills = pane.querySelector("#extends-pills") as HTMLElement;
+        const extendsChecklist = pane.querySelector("#extends-checklist") as HTMLElement;
+        const btnToggleExtends = pane.querySelector("#btn-toggle-extends") as HTMLButtonElement;
+        const btnClearExtends = pane.querySelector("#btn-clear-extends") as HTMLButtonElement;
+        let extendsOpen = draft.extends.length > 0;
+
+        const compWorldsCard = pane.querySelector("#comp-worlds-card") as HTMLElement;
+        const compWorldsTitle = pane.querySelector("#comp-worlds-title") as HTMLElement;
+        const compWorldsPills = pane.querySelector("#comp-worlds-pills") as HTMLElement;
+        const compWorldsChecklist = pane.querySelector("#comp-worlds-checklist") as HTMLElement;
+        const btnToggleCompWorlds = pane.querySelector("#btn-toggle-comp-worlds") as HTMLButtonElement;
+        const btnAllCompWorlds = pane.querySelector("#btn-all-comp-worlds") as HTMLButtonElement;
+        const btnClearCompWorlds = pane.querySelector("#btn-clear-comp-worlds") as HTMLButtonElement;
+        let compWorldsOpen = state.draftCompWorlds.length > 0;
+
+        const renderCompWorldsUI = () => {
+            const canRegister = draft.is_component !== false;
+            compWorldsCard.style.display = canRegister ? "flex" : "none";
+            if (!canRegister) return;
+
+            const validWorldNames = new Set(state.schema.worlds.map((w) => w.name));
+            state.draftCompWorlds = state.draftCompWorlds.filter((wn) => validWorldNames.has(wn));
+            const selected = state.draftCompWorlds;
+
+            compWorldsTitle.textContent = `Add to Worlds (${selected.length}/${state.schema.worlds.length})`;
+            btnAllCompWorlds.disabled = state.schema.worlds.length === 0;
+            btnClearCompWorlds.disabled = selected.length === 0;
+            btnToggleCompWorlds.textContent = compWorldsOpen ? "Hide List" : "Select...";
+            compWorldsChecklist.style.display = compWorldsOpen ? "grid" : "none";
+
+            compWorldsPills.innerHTML = "";
+            if (selected.length === 0) {
+                compWorldsPills.innerHTML = `<span style="color:#777;font-size:11px;">Not registered to any world yet</span>`;
+            } else {
+                selected.forEach((wName) => {
+                    const pill = document.createElement("span");
+                    pill.className = "world-pill";
+                    pill.innerHTML = `<span>${escHtml(wName)}</span><button type="button" title="Remove">&times;</button>`;
+                    pill.querySelector("button")?.addEventListener("click", () => {
+                        state.draftCompWorlds = state.draftCompWorlds.filter((n) => n !== wName);
+                        renderCompWorldsUI();
+                    });
+                    compWorldsPills.appendChild(pill);
+                });
+            }
+
+            compWorldsChecklist.innerHTML = "";
+            if (state.schema.worlds.length === 0) {
+                compWorldsChecklist.innerHTML = `<div style="color:#777;padding:4px 2px;grid-column:1/-1;">No worlds created yet. Create one in the "Worlds" tab.</div>`;
+                return;
+            }
+            for (const w of state.schema.worlds) {
+                const checked = selected.includes(w.name);
+                const chip = document.createElement("label");
+                chip.className = `comp-chip${checked ? " checked" : ""}`;
+                chip.innerHTML = `
+                    <input type="checkbox" ${checked ? "checked" : ""} />
+                    <span>${escHtml(w.name)}</span>
+                    <span class="badge blue" style="margin-left:auto;">${w.components.length}</span>
+                `;
+                const cb = chip.querySelector("input")!;
+                cb.addEventListener("change", () => {
+                    if (cb.checked) {
+                        if (!state.draftCompWorlds.includes(w.name)) state.draftCompWorlds.push(w.name);
+                    } else {
+                        state.draftCompWorlds = state.draftCompWorlds.filter((n) => n !== w.name);
+                    }
+                    renderCompWorldsUI();
+                });
+                compWorldsChecklist.appendChild(chip);
+            }
+        };
+
+        btnToggleCompWorlds.addEventListener("click", () => {
+            compWorldsOpen = !compWorldsOpen;
+            renderCompWorldsUI();
+        });
+        btnAllCompWorlds.addEventListener("click", () => {
+            state.draftCompWorlds = state.schema.worlds.map((w) => w.name);
+            renderCompWorldsUI();
+        });
+        btnClearCompWorlds.addEventListener("click", () => {
+            state.draftCompWorlds = [];
+            renderCompWorldsUI();
+        });
+
+        const checkCompDupName = (): boolean => {
+            const candidate = (draft.name || "").trim();
+            const isDup = !!candidate && state.schema.components.some(
+                (c, idx) => idx !== state.editingCompIndex && c.name === candidate
+            );
+            nameInput.classList.toggle("input-err", isDup);
+            nameErrEl.classList.toggle("show", isDup);
+            nameErrEl.textContent = isDup ? `Duplicate component name "${candidate}" already exists.` : "";
+            saveCompBtn.disabled = isDup;
+            return isDup;
+        };
+
+        const renderExtendsUI = () => {
+            const curName = (draft.name || "").trim();
+            const candidates = state.schema.components.filter(
+                (c) => c.name !== selfOrigName && (!curName || c.name !== curName)
+            );
+            const selected = draft.extends || [];
+            extendsTitle.textContent = `Extends (${selected.length})`;
+            btnClearExtends.disabled = selected.length === 0;
+            btnToggleExtends.textContent = extendsOpen ? "Hide List" : "Select...";
+            extendsChecklist.style.display = extendsOpen ? "grid" : "none";
+
+            extendsPills.innerHTML = "";
+            if (selected.length === 0) {
+                extendsPills.innerHTML = `<span style="color:#777;font-size:11px;">None — standalone ECS component</span>`;
+            } else {
+                selected.forEach((pName) => {
+                    const pill = document.createElement("span");
+                    pill.className = "extends-pill";
+                    pill.innerHTML = `<span>${escHtml(pName)}</span><button type="button" title="Remove">&times;</button>`;
+                    pill.querySelector("button")?.addEventListener("click", () => {
+                        draft.extends = (draft.extends || []).filter((n) => n !== pName);
+                        renderExtendsUI();
+                        updateCompPreview();
+                    });
+                    extendsPills.appendChild(pill);
+                });
+            }
+
+            extendsChecklist.innerHTML = "";
+            if (candidates.length === 0) {
+                extendsChecklist.innerHTML = `<div style="color:#777;padding:4px 2px;grid-column:1/-1;">No other pTS-ECS components available to extend.</div>`;
+                return;
+            }
+            for (const c of candidates) {
+                const checked = selected.includes(c.name);
+                const chip = document.createElement("label");
+                chip.className = `comp-chip${checked ? " checked" : ""}`;
+                chip.innerHTML = `
+                    <input type="checkbox" ${checked ? "checked" : ""} />
+                    <span>${escHtml(c.name)}</span>
+                    ${c.is_component === false ? `<span class="badge amber" style="margin-left:auto;">Struct</span>` : `<span class="badge" style="margin-left:auto;">${c.props.length}</span>`}
+                `;
+                const cb = chip.querySelector("input")!;
+                cb.addEventListener("change", () => {
+                    const list = draft.extends || [];
+                    if (cb.checked) {
+                        if (!list.includes(c.name)) list.push(c.name);
+                    } else {
+                        draft.extends = list.filter((n) => n !== c.name);
+                    }
+                    renderExtendsUI();
+                    updateCompPreview();
+                });
+                extendsChecklist.appendChild(chip);
+            }
+        };
+
+        btnToggleExtends.addEventListener("click", () => {
+            extendsOpen = !extendsOpen;
+            renderExtendsUI();
+        });
+        btnClearExtends.addEventListener("click", () => {
+            draft.extends = [];
+            renderExtendsUI();
+            updateCompPreview();
+        });
+        renderExtendsUI();
+        renderCompWorldsUI();
+        checkCompDupName();
+
         nameInput.addEventListener("input", () => {
             draft.name = nameInput.value;
+            checkCompDupName();
+            renderExtendsUI();
+            updateCompPreview();
+        });
+        isCompCheck.addEventListener("change", () => {
+            draft.is_component = isCompCheck.checked;
+            if (!draft.is_component) {
+                state.draftCompWorlds = [];
+            }
+            renderCompWorldsUI();
             updateCompPreview();
         });
 
@@ -1296,8 +1603,17 @@ export const ready = async function (this: any) {
         });
 
         pane.querySelector("#btn-save-comp")?.addEventListener("click", async () => {
+            if (checkCompDupName()) {
+                showBanner(`Duplicate component name "${(draft.name || "").trim()}" already exists.`, true);
+                return;
+            }
+            const cleanedExtends = Array.isArray(draft.extends)
+                ? draft.extends.map((e) => String(e ?? "").trim()).filter(Boolean)
+                : [];
             const cleaned: IComponentDef = {
                 name: (draft.name || "").trim(),
+                ...(draft.is_component === false ? { is_component: false } : {}),
+                ...(cleanedExtends.length > 0 ? { extends: cleanedExtends } : {}),
                 props: draft.props.map((p) => ({
                     name: (p.name || "").trim(),
                     kind: p.kind,
@@ -1317,22 +1633,43 @@ export const ready = async function (this: any) {
                 next.components.push(cleaned);
             } else if (state.editingCompIndex !== null) {
                 next.components[state.editingCompIndex] = cleaned;
-                // Cascade rename inside other components & worlds
+                // Cascade rename inside other components (props & extends)
                 if (oldName && oldName !== cleaned.name) {
                     for (const c of next.components) {
                         for (const p of c.props) {
                             if (p.kind === "component" && p.type === oldName) p.type = cleaned.name;
                         }
-                    }
-                    for (const w of next.worlds) {
-                        w.components = w.components.map((cn) => (cn === oldName ? cleaned.name : cn));
+                        if (Array.isArray(c.extends)) {
+                            c.extends = c.extends.map((en) => (en === oldName ? cleaned.name : en));
+                        }
                     }
                 }
             }
 
-            if (await persistSchema(next, `Saved component "${cleaned.name}" -> generated _$secret/ecs.components.(js|d.ts).`)) {
+            // Sync quick-assigned world memberships (and strip if converted to non-component Struct)
+            const selectedWorlds = new Set(cleaned.is_component !== false ? state.draftCompWorlds : []);
+            for (const w of next.worlds) {
+                // First apply any rename in-place so existing bit order is preserved
+                if (oldName && oldName !== cleaned.name) {
+                    w.components = w.components.map((cn) => (cn === oldName ? cleaned.name : cn));
+                }
+                const want = selectedWorlds.has(w.name);
+                const has = w.components.includes(cleaned.name);
+                if (want && !has) {
+                    w.components.push(cleaned.name);
+                } else if (!want && has) {
+                    w.components = w.components.filter((cn) => cn !== cleaned.name);
+                }
+            }
+
+            if (await persistSchema(next, `Saved component "${cleaned.name}" -> regenerated _$secret components & worlds.`)) {
                 state.editingCompIndex = isNew ? state.schema.components.length - 1 : state.editingCompIndex;
                 state.draftComp = JSON.parse(JSON.stringify(state.schema.components[state.editingCompIndex!]));
+                if (state.draftComp!.is_component === undefined) state.draftComp!.is_component = true;
+                if (!Array.isArray(state.draftComp!.extends)) state.draftComp!.extends = [];
+                state.draftCompWorlds = state.schema.worlds
+                    .filter((w) => w.components.includes(cleaned.name))
+                    .map((w) => w.name);
                 renderCompList();
                 renderCompEditor();
             }
@@ -1342,7 +1679,8 @@ export const ready = async function (this: any) {
     const startNewComponent = () => {
         clearBanner();
         state.editingCompIndex = -1;
-        state.draftComp = { name: "", props: [] };
+        state.draftComp = { name: "", is_component: true, extends: [], props: [] };
+        state.draftCompWorlds = [];
         renderCompList();
         renderCompEditor();
     };
@@ -1459,6 +1797,7 @@ export const ready = async function (this: any) {
                     <span class="field-label">World Name</span>
                     <input class="grow" type="text" id="world-name-input" value="${escHtml(draft.name)}" placeholder="e.g. combat, gameplay, fx" />
                 </div>
+                <div class="inline-err" id="world-name-err"></div>
                 <div class="field-row">
                     <span class="field-label">Max Entities</span>
                     <input type="number" id="world-max-input" min="1" step="1" value="${isInf ? 5000 : Number(draft.max_entities)}" ${isInf ? "disabled" : ""} style="width:120px;" />
@@ -1516,7 +1855,21 @@ export const ready = async function (this: any) {
         `;
 
         const nameInput = pane.querySelector("#world-name-input") as HTMLInputElement;
+        const worldNameErrEl = pane.querySelector("#world-name-err") as HTMLElement;
+        const saveWorldBtn = pane.querySelector("#btn-save-world") as HTMLButtonElement;
         const maxInput = pane.querySelector("#world-max-input") as HTMLInputElement;
+
+        const checkWorldDupName = (): boolean => {
+            const candidate = (draft.name || "").trim();
+            const isDup = !!candidate && state.schema.worlds.some(
+                (w, idx) => idx !== state.editingWorldIndex && w.name === candidate
+            );
+            nameInput.classList.toggle("input-err", isDup);
+            worldNameErrEl.classList.toggle("show", isDup);
+            worldNameErrEl.textContent = isDup ? `Duplicate world name "${candidate}" already exists.` : "";
+            saveWorldBtn.disabled = isDup;
+            return isDup;
+        };
         const infCheck = pane.querySelector("#world-inf-check") as HTMLInputElement;
         const boostCheck = pane.querySelector("#world-boost-check") as HTMLInputElement;
         const evModeSelect = pane.querySelector("#world-event-mode") as HTMLSelectElement;
@@ -1571,8 +1924,11 @@ export const ready = async function (this: any) {
             renderEventRows();
         });
 
+        checkWorldDupName();
+
         nameInput.addEventListener("input", () => {
             draft.name = nameInput.value;
+            checkWorldDupName();
             updateWorldPreview();
         });
         maxInput.addEventListener("input", () => {
@@ -1588,17 +1944,22 @@ export const ready = async function (this: any) {
             draft.auto_boost = boostCheck.checked;
         });
 
+        const worldEligibleComps = () => state.schema.components.filter((c) => c.is_component !== false);
         const checklist = pane.querySelector("#world-comp-checklist") as HTMLElement;
         const compsTitle = pane.querySelector("#world-comps-title") as HTMLElement;
         const renderChecklist = () => {
             checklist.innerHTML = "";
-            if (state.schema.components.length === 0) {
-                checklist.innerHTML = `<div style="color:#777;">Create components in the "Components" tab first.</div>`;
+            const eligible = worldEligibleComps();
+            if (compsTitle) {
+                compsTitle.textContent = `Registered Components (${draft.components.length}/${eligible.length})`;
+            }
+            if (eligible.length === 0) {
+                checklist.innerHTML = `<div style="color:#777;">Create attachable components in the "Components" tab first.</div>`;
                 updateWorldPreview();
                 return;
             }
             const selectedSet = new Set(draft.components);
-            for (const c of state.schema.components) {
+            for (const c of eligible) {
                 const checked = selectedSet.has(c.name);
                 const label = document.createElement("label");
                 label.className = `comp-chip${checked ? " checked" : ""}`;
@@ -1615,7 +1976,7 @@ export const ready = async function (this: any) {
                     }
                     label.classList.toggle("checked", cb.checked);
                     if (compsTitle) {
-                        compsTitle.textContent = `Registered Components (${draft.components.length}/${state.schema.components.length})`;
+                        compsTitle.textContent = `Registered Components (${draft.components.length}/${worldEligibleComps().length})`;
                     }
                     updateWorldPreview();
                 });
@@ -1626,7 +1987,7 @@ export const ready = async function (this: any) {
         renderChecklist();
 
         pane.querySelector("#btn-select-all-comps")?.addEventListener("click", () => {
-            draft.components = state.schema.components.map((c) => c.name);
+            draft.components = worldEligibleComps().map((c) => c.name);
             renderChecklist();
         });
         pane.querySelector("#btn-clear-all-comps")?.addEventListener("click", () => {
@@ -1643,6 +2004,10 @@ export const ready = async function (this: any) {
         });
 
         pane.querySelector("#btn-save-world")?.addEventListener("click", async () => {
+            if (checkWorldDupName()) {
+                showBanner(`Duplicate world name "${(draft.name || "").trim()}" already exists.`, true);
+                return;
+            }
             const evMode = evModeSelect.value === "manual" ? "manual" : "primitive";
             const cleaned: IWorldDef = {
                 name: (draft.name || "").trim(),
@@ -1687,7 +2052,22 @@ export const ready = async function (this: any) {
     this.$.btnNewWorld.addEventListener("click", startNewWorld);
     this.$.filterWorld.addEventListener("input", renderWorldList);
 
+    let lastFocusRefresh = 0;
+    const onPanelFocus = () => {
+        const now = Date.now();
+        if (now - lastFocusRefresh < 1500) return;
+        lastFocusRefresh = now;
+        void loadEngineTypes(false);
+    };
+    window.addEventListener("focus", onPanelFocus);
+    (this as any)._onPanelFocus = onPanelFocus;
+
     await Promise.all([loadEngineTypes(false), loadSchema()]);
 };
 
-export const close = function () {};
+export const close = function (this: any) {
+    if (this._onPanelFocus) {
+        window.removeEventListener("focus", this._onPanelFocus);
+        this._onPanelFocus = null;
+    }
+};
