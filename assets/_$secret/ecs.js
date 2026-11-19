@@ -420,7 +420,7 @@
     }
 
     // ─── Spatial-Hash Collide (Zero-GC Buffers) ───
-    var _$COL_HASH_SIZE = 4096;
+    var _$COL_HASH_SIZE = 4096
     var _$COL_HASH_MASK = _$COL_HASH_SIZE - 1;
     var _$COL_PRIME_X = 73856093;
     var _$COL_PRIME_Y = 19349663;
@@ -475,13 +475,16 @@
         var _target_id = (_target && _target.id !== undefined) ? _target.id : -1;
 
         var _count = 0;
-        var _i, _id;
+        var _max_r = 0;
+        var _i, _id, _r;
         if (_wc === 1) {
             for (_i = 0; _i < _active_len; _i++) {
                 _id = _active[_i];
                 if (_id === _target_id) continue;
                 if ((_masks[_id] & _both_mask) !== _both_mask) continue;
-                if (_col_store[_id].radius <= 0) continue;
+                _r = _col_store[_id].radius;
+                if (_r <= 0) continue;
+                if (_r > _max_r) _max_r = _r;
                 _ids[_count++] = _id;
             }
         } else if (_same_word) {
@@ -489,7 +492,9 @@
                 _id = _active[_i];
                 if (_id === _target_id) continue;
                 if ((_masks[_id * _wc + _pw] & _both_mask) !== _both_mask) continue;
-                if (_col_store[_id].radius <= 0) continue;
+                _r = _col_store[_id].radius;
+                if (_r <= 0) continue;
+                if (_r > _max_r) _max_r = _r;
                 _ids[_count++] = _id;
             }
         } else {
@@ -498,14 +503,19 @@
                 if (_id === _target_id) continue;
                 var _base = _id * _wc;
                 if ((_masks[_base + _pw] & _pm) === 0 || (_masks[_base + _cw] & _cm) === 0) continue;
-                if (_col_store[_id].radius <= 0) continue;
+                _r = _col_store[_id].radius;
+                if (_r <= 0) continue;
+                if (_r > _max_r) _max_r = _r;
                 _ids[_count++] = _id;
             }
         }
 
         if (_count === 0) return;
 
+        // 3x3 neighbor search requires chunk_size >= 2 * max_radius so no overlapping pair can sit 2 cells apart
         var _chunk_size = Math.max(1, (opts && opts.chunk_size !== undefined) ? opts.chunk_size : 32);
+        var _min_chunk = _max_r * 2;
+        if (_chunk_size < _min_chunk) _chunk_size = _min_chunk;
         var _inv_chunk = 1 / _chunk_size;
         var _iterations = Math.max(1, (opts && opts.iterations !== undefined) ? opts.iterations : 2);
         var _on_collide = opts ? opts.on_collide : undefined;
