@@ -185,9 +185,46 @@ export interface IWorldDef {
     events?: string[];
 }
 
+export interface IEcsSettings {
+    /** Auto-generate Cocos @ccclass DTOs (scripts/ecs.dto.ts) & ecs.get_ccclass() types. Default: false */
+    auto_generate_dto: boolean;
+    /** Prefix for auto-generated @ccclass DTO names. Default: "ECS_DTO" */
+    ccclass_prefix: string;
+    /** Optional suffix for auto-generated @ccclass DTO names. Default: "" */
+    ccclass_suffix: string;
+}
+
+export const DEFAULT_ECS_SETTINGS: IEcsSettings = {
+    auto_generate_dto: false,
+    ccclass_prefix: "ECS_DTO",
+    ccclass_suffix: "",
+};
+
+export function normalizeEcsSettings(raw?: Partial<IEcsSettings> | null): IEcsSettings {
+    return {
+        auto_generate_dto: Boolean(raw?.auto_generate_dto ?? DEFAULT_ECS_SETTINGS.auto_generate_dto),
+        ccclass_prefix: typeof raw?.ccclass_prefix === "string"
+            ? raw.ccclass_prefix.trim()
+            : DEFAULT_ECS_SETTINGS.ccclass_prefix,
+        ccclass_suffix: typeof raw?.ccclass_suffix === "string"
+            ? raw.ccclass_suffix.trim()
+            : DEFAULT_ECS_SETTINGS.ccclass_suffix,
+    };
+}
+
+/**
+ * Build generated @ccclass name using formula `${prefix}_${component_name}_${suffix}`
+ * (omitting empty prefix/suffix segments so e.g. prefix="ECS_DTO", suffix="" -> "ECS_DTO_XPos").
+ */
+export function buildDtoClassName(compName: string, settings?: Partial<IEcsSettings> | null): string {
+    const s = normalizeEcsSettings(settings);
+    return [s.ccclass_prefix, (compName || "").trim(), s.ccclass_suffix].filter(Boolean).join("_");
+}
+
 export interface IEcsSchemaProfile {
     components: IComponentDef[];
     worlds: IWorldDef[];
+    settings?: IEcsSettings;
 }
 
 export interface IValidationResult {

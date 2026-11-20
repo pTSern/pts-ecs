@@ -9,11 +9,14 @@ import {
     IEngineEnumOption,
     IEngineTypeOption,
     IEngineTypesPayload,
+    normalizeEcsSettings,
 } from "./schema";
 import { validateSchema } from "./validator";
 import {
     generateComponentsDts,
     generateComponentsJs,
+    generateDtoDts,
+    generateDtoTs,
     generateWorldsDts,
     generateWorldsJs,
 } from "./codegen";
@@ -21,7 +24,9 @@ import type { ISceneEnumItem, ISceneTypeItem } from "./scene";
 
 const PKG_NAME = pkg.name;
 const SECRET_DIR = path.resolve(__dirname, "..", "assets", "_$secret");
+const SCRIPTS_DIR = path.resolve(__dirname, "..", "assets", "scripts");
 const SECRET_DB = `db://${PKG_NAME}/_$secret`;
+const SCRIPTS_DB = `db://${PKG_NAME}/scripts`;
 
 const PLUGIN_FILES = ["ecs.js", "ecs.components.js", "ecs.worlds.js"] as const;
 
@@ -51,15 +56,18 @@ function checkPtsCoreDependency(): void {
 async function readProfileSchema(): Promise<IEcsSchemaProfile> {
     const components = (await Editor.Profile.getProject(PKG_NAME, "components")) as any;
     const worlds = (await Editor.Profile.getProject(PKG_NAME, "worlds")) as any;
+    const rawSettings = (await Editor.Profile.getProject(PKG_NAME, "settings")) as any;
     return {
         components: Array.isArray(components) ? components : [],
         worlds: Array.isArray(worlds) ? worlds : [],
+        settings: normalizeEcsSettings(rawSettings),
     };
 }
 
 async function writeProfileSchema(schema: IEcsSchemaProfile): Promise<void> {
     await Editor.Profile.setProject(PKG_NAME, "components", schema.components);
     await Editor.Profile.setProject(PKG_NAME, "worlds", schema.worlds);
+    await Editor.Profile.setProject(PKG_NAME, "settings", normalizeEcsSettings(schema.settings));
 }
 
 async function ensurePluginMeta(dbUrl: string): Promise<string | null> {
@@ -135,21 +143,31 @@ async function regenerateAll(schema?: IEcsSchemaProfile): Promise<{ ok: boolean;
     if (!fs.existsSync(SECRET_DIR)) {
         fs.mkdirSync(SECRET_DIR, { recursive: true });
     }
+    if (!fs.existsSync(SCRIPTS_DIR)) {
+        fs.mkdirSync(SCRIPTS_DIR, { recursive: true });
+    }
 
+    const settings = normalizeEcsSettings(data.settings);
     const compJsPath = path.join(SECRET_DIR, "ecs.components.js");
     const compDtsPath = path.join(SECRET_DIR, "ecs.components.d.ts");
     const worldJsPath = path.join(SECRET_DIR, "ecs.worlds.js");
     const worldDtsPath = path.join(SECRET_DIR, "ecs.worlds.d.ts");
+    const dtoTsPath = path.join(SCRIPTS_DIR, "ecs.dto.ts");
+    const dtoDtsPath = path.join(SECRET_DIR, "ecs.dto.d.ts");
 
     fs.writeFileSync(compJsPath, generateComponentsJs(data.components), "utf8");
     fs.writeFileSync(compDtsPath, generateComponentsDts(data.components), "utf8");
     fs.writeFileSync(worldJsPath, generateWorldsJs(data.worlds), "utf8");
     fs.writeFileSync(worldDtsPath, generateWorldsDts(data.worlds), "utf8");
+    fs.writeFileSync(dtoTsPath, generateDtoTs(data.components, settings), "utf8");
+    fs.writeFileSync(dtoDtsPath, generateDtoDts(data.components, settings), "utf8");
 
-    // Refresh .d.ts declarations
+    // Refresh .d.ts declarations & generated DTO script
     await Editor.Message.request("asset-db", "refresh-asset", `${SECRET_DB}/ecs.d.ts`).catch(() => {});
     await Editor.Message.request("asset-db", "refresh-asset", `${SECRET_DB}/ecs.components.d.ts`).catch(() => {});
     await Editor.Message.request("asset-db", "refresh-asset", `${SECRET_DB}/ecs.worlds.d.ts`).catch(() => {});
+    await Editor.Message.request("asset-db", "refresh-asset", `${SECRET_DB}/ecs.dto.d.ts`).catch(() => {});
+    await Editor.Message.request("asset-db", "refresh-asset", `${SCRIPTS_DB}/ecs.dto.ts`).catch(() => {});
 
     // Ensure all 3 core/generated .js files are marked as plugins & sorted in order
     const pluginUuids: string[] = [];

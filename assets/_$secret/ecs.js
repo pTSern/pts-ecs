@@ -7,9 +7,13 @@
     var _schema = (root.pTS.__ecs_schema__ = root.pTS.__ecs_schema__ || {
         components: Object.create(null),
         worlds: Object.create(null),
+        dtos: Object.create(null),
+        dto_base: null,
     });
     if (!_schema.components) _schema.components = Object.create(null);
     if (!_schema.worlds) _schema.worlds = Object.create(null);
+    if (!_schema.dtos) _schema.dtos = Object.create(null);
+    if (_schema.dto_base === undefined) _schema.dto_base = null;
 
     var _$CORE_TAG = Symbol.for("__pts_ecs_core__");
     if (root.pTS.ecs && root.pTS.ecs[_$CORE_TAG]) {
@@ -856,6 +860,40 @@
         return _$instantiate_schema_world(name);
     }
 
+    function _$get_registered_comps_from(world_name) {
+        var _name = typeof world_name === "string"
+            ? world_name.trim()
+            : (world_name && typeof world_name.name === "string" ? world_name.name.trim() : "");
+        if (!_name) return [];
+        var _holder = _$worlds[_name];
+        if (_holder && _holder.world && _holder.world.bits) {
+            return Object.keys(_holder.world.bits);
+        }
+        var _def = _schema.worlds[_name];
+        if (_def && Array.isArray(_def.components)) {
+            return _def.components.slice();
+        }
+        return [];
+    }
+
+    function _$get_default_comp(component_name) {
+        var _name = typeof component_name === "string" ? component_name.trim() : "";
+        if (!_name) return undefined;
+        var _factory = _schema.components[_name];
+        return typeof _factory === "function" ? _factory() : undefined;
+    }
+
+    function _$get_ccclass_comp(component_name) {
+        var _name = typeof component_name === "string" ? component_name.trim() : "";
+        if (!_name) return undefined;
+        var _dtos = _schema.dtos;
+        return (_dtos && typeof _dtos[_name] === "function") ? _dtos[_name] : undefined;
+    }
+
+    function _$get_ccclass_comp_base() {
+        return typeof _schema.dto_base === "function" ? _schema.dto_base : undefined;
+    }
+
     // Private schema sync hook (lives on internal __ecs_schema__, never exposed on public pTS.ecs!)
     function _$sync_schema() {
         var _world_names = Object.keys(_schema.worlds);
@@ -884,6 +922,10 @@
     ecs.create_world = _$create_world;
     ecs.get_world = _$get_world;
     ecs.delete_world = _$delete_world;
+    ecs.get_registered_comps_from = _$get_registered_comps_from;
+    ecs.get_default_comp = _$get_default_comp;
+    ecs.get_ccclass_comp = _$get_ccclass_comp;
+    ecs.get_ccclass_comp_base = _$get_ccclass_comp_base;
     ecs.match = _$match;
     Object.defineProperty(ecs, _$CORE_TAG, { value: true, enumerable: false });
 

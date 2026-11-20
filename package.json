@@ -17,9 +17,10 @@
     },
     "panels": {
         "default": {
-            "title": "pTS-ECS",
+            "title": "pTS ECS",
             "type": "dockable",
             "main": "dist/panel.js",
+            "icon": "./static/icon.png",
             "size": {
                 "min-width": 720,
                 "min-height": 540
@@ -45,6 +46,14 @@
                 "worlds": {
                     "default": [],
                     "label": "ECS Worlds"
+                },
+                "settings": {
+                    "default": {
+                        "auto_generate_dto": false,
+                        "ccclass_prefix": "ECS_DTO",
+                        "ccclass_suffix": ""
+                    },
+                    "label": "ECS Settings"
                 },
                 "btn_open_panel": {
                     "default": false,

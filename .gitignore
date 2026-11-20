@@ -8,3 +8,8 @@ assets/_$secret/ecs.worlds.js
 assets/_$secret/ecs.worlds.js.meta
 assets/_$secret/ecs.worlds.d.ts
 assets/_$secret/ecs.worlds.d.ts.meta
+assets/scripts/ecs.dto.ts
+assets/scripts/ecs.dto.ts.meta
+assets/_$secret/ecs.d.ts
+assets/_$secret/ecs.dto.d.ts
+assets/_$secret/ecs.dto.d.ts.meta

@@ -1,21 +1,25 @@
 import pkg from "../package.json";
 import {
+    buildDtoClassName,
     COMPLEX_MODES,
     DEFAULT_COCOS_ASSETS,
     DEFAULT_COCOS_COMPONENTS,
     DEFAULT_COCOS_ENUMS,
+    DEFAULT_ECS_SETTINGS,
     IComponentDef,
     IEcsSchemaProfile,
+    IEcsSettings,
     IEngineEnumOption,
     IEngineTypeOption,
     IEngineTypesPayload,
     IPropDef,
     IWorldDef,
+    normalizeEcsSettings,
     PRIMITIVE_TYPES,
     TPropComplex,
     TPropTypeKind,
 } from "./schema";
-import { generateComponentsDts, generateWorldsDts } from "./codegen";
+import { generateComponentsDts, generateDtoDts, generateWorldsDts } from "./codegen";
 
 const PKG_NAME = pkg.name;
 
@@ -593,6 +597,7 @@ export const template = `
     <div class="tabs">
         <button class="tab-btn active" data-tab="components">Components</button>
         <button class="tab-btn" data-tab="worlds">Worlds</button>
+        <button class="tab-btn" data-tab="settings">Settings</button>
     </div>
     <div class="top-actions">
         <button class="btn sm" id="btn-refresh-schema" title="Reload latest Components & Worlds from profile">↻ Refresh Panel</button>
@@ -627,6 +632,11 @@ export const template = `
         </div>
         <div class="editor-pane" id="world-editor"></div>
     </div>
+
+    <!-- Sub-panel 3: Settings -->
+    <div class="subpanel" id="panel-settings">
+        <div class="editor-pane" id="settings-editor" style="max-width:760px;"></div>
+    </div>
 </div>
 
 <!-- Floating Cascading Type Selector Menu -->
@@ -651,6 +661,8 @@ export const $ = {
     btnRegen: "#btn-regen",
     panelComponents: "#panel-components",
     panelWorlds: "#panel-worlds",
+    panelSettings: "#panel-settings",
+    settingsEditor: "#settings-editor",
     btnNewComp: "#btn-new-comp",
     filterComp: "#filter-comp",
     compList: "#comp-list",
@@ -669,7 +681,7 @@ export const $ = {
 };
 
 interface IPanelState {
-    tab: "components" | "worlds";
+    tab: "components" | "worlds" | "settings";
     schema: IEcsSchemaProfile;
     engineTypes: IEngineTypesPayload;
     engineTypeLookup: Map<string, IEngineTypeOption>;
@@ -679,6 +691,7 @@ interface IPanelState {
     draftCompWorlds: string[];
     editingWorldIndex: number | null;
     draftWorld: IWorldDef | null;
+    draftSettings: IEcsSettings;
 }
 
 function defaultEngineTypes(): IEngineTypesPayload {
@@ -705,7 +718,7 @@ function defaultEngineTypes(): IEngineTypesPayload {
 export const ready = async function (this: any) {
     const state: IPanelState = {
         tab: "components",
-        schema: { components: [], worlds: [] },
+        schema: { components: [], worlds: [], settings: { ...DEFAULT_ECS_SETTINGS } },
         engineTypes: defaultEngineTypes(),
         engineTypeLookup: new Map(),
         engineEnumLookup: new Map(),
@@ -714,6 +727,7 @@ export const ready = async function (this: any) {
         draftCompWorlds: [],
         editingWorldIndex: null,
         draftWorld: null,
+        draftSettings: { ...DEFAULT_ECS_SETTINGS },
     };
 
     const rebuildEngineLookup = () => {
@@ -785,7 +799,9 @@ export const ready = async function (this: any) {
         state.schema = {
             components: Array.isArray(nextSchema?.components) ? nextSchema.components : [],
             worlds: Array.isArray(nextSchema?.worlds) ? nextSchema.worlds : [],
+            settings: normalizeEcsSettings(nextSchema?.settings),
         };
+        state.draftSettings = normalizeEcsSettings(state.schema.settings);
 
         // Reconcile existing component selection without clobbering an unsaved "new component" draft
         if (state.editingCompIndex !== null && state.editingCompIndex >= 0) {
@@ -826,6 +842,7 @@ export const ready = async function (this: any) {
         renderCompEditor();
         renderWorldList();
         renderWorldEditor();
+        renderSettingsEditor();
 
         if (announceMsg) {
             showBanner(announceMsg, false);
@@ -883,14 +900,17 @@ export const ready = async function (this: any) {
     const tabBtns = tabsEl ? Array.from(tabsEl.querySelectorAll<HTMLButtonElement>(".tab-btn")) : [];
     tabBtns.forEach((btn) => {
         btn.addEventListener("click", () => {
-            const target = btn.dataset.tab as "components" | "worlds";
+            const target = btn.dataset.tab as "components" | "worlds" | "settings";
             state.tab = target;
             tabBtns.forEach((b) => b.classList.toggle("active", b === btn));
             this.$.panelComponents.classList.toggle("active", target === "components");
             this.$.panelWorlds.classList.toggle("active", target === "worlds");
+            this.$.panelSettings.classList.toggle("active", target === "settings");
             if (target === "worlds") {
                 renderWorldList();
                 renderWorldEditor();
+            } else if (target === "settings") {
+                renderSettingsEditor();
             } else {
                 renderCompList();
                 renderCompEditor();
@@ -2131,6 +2151,111 @@ export const ready = async function (this: any) {
 
     this.$.btnNewWorld.addEventListener("click", startNewWorld);
     this.$.filterWorld.addEventListener("input", renderWorldList);
+
+    // ─── Settings Sub-Panel ───
+    const renderSettingsEditor = () => {
+        const pane = this.$.settingsEditor as HTMLElement | null;
+        if (!pane) return;
+
+        const draft = state.draftSettings;
+        pane.innerHTML = `
+            <div class="section-card">
+                <div class="section-head">
+                    <span class="section-title">DTO @ccclass Auto-Generation</span>
+                </div>
+                <div class="field-row">
+                    <span class="field-label">Auto-Generate DTOs</span>
+                    <label class="check-inline">
+                        <input type="checkbox" id="settings-auto-dto" ${draft.auto_generate_dto ? "checked" : ""} />
+                        <span>Generate real Cocos @ccclass DTOs (db://pts-ecs/scripts/ecs.dto) &amp; ecs.get_ccclass_comp() types</span>
+                    </label>
+                </div>
+                <div class="field-row">
+                    <span class="field-label">@ccclass Prefix</span>
+                    <input class="grow" type="text" id="settings-dto-prefix" value="${escHtml(draft.ccclass_prefix)}" placeholder="ECS_DTO" />
+                </div>
+                <div class="field-row">
+                    <span class="field-label">@ccclass Suffix</span>
+                    <input class="grow" type="text" id="settings-dto-suffix" value="${escHtml(draft.ccclass_suffix)}" placeholder="(optional, e.g. Cfg)" />
+                </div>
+                <div style="font-size:11px;color:#888;padding-left:118px;">
+                    Formula: <code>\${prefix}_\${component_name}_\${suffix}</code> (empty prefix/suffix segments omitted)
+                </div>
+            </div>
+
+            <div class="section-card">
+                <div class="section-head">
+                    <span class="section-title">Live Naming &amp; .d.ts Preview</span>
+                </div>
+                <pre class="code-preview" id="settings-dto-preview"></pre>
+            </div>
+
+            <div class="footer-actions">
+                <button class="btn" id="btn-reset-settings">Reset Defaults</button>
+                <button class="btn success" id="btn-save-settings">Save Settings &amp; Regenerate</button>
+            </div>
+        `;
+
+        const chkAuto = pane.querySelector("#settings-auto-dto") as HTMLInputElement;
+        const inpPrefix = pane.querySelector("#settings-dto-prefix") as HTMLInputElement;
+        const inpSuffix = pane.querySelector("#settings-dto-suffix") as HTMLInputElement;
+        const previewEl = pane.querySelector("#settings-dto-preview") as HTMLElement;
+
+        const updatePreview = () => {
+            const sampleComps = state.schema.components.length > 0
+                ? state.schema.components.slice(0, 5)
+                : [{ name: "XPos", props: [] }, { name: "XHealth", props: [] }];
+            const firstComp = sampleComps[0].name;
+            const firstClass = buildDtoClassName(firstComp, draft);
+
+            if (!draft.auto_generate_dto) {
+                previewEl.textContent =
+                    `// Auto-Generate DTOs is OFF (default).\n` +
+                    `// Enable above to emit db://pts-ecs/scripts/ecs.dto.ts & _$secret/ecs.dto.d.ts.\n` +
+                    `// Preview name with current prefix/suffix:\n` +
+                    `//   "${firstComp}" -> @ccclass("${firstClass}")\n`;
+                return;
+            }
+
+            const dts = generateDtoDts(sampleComps, draft);
+            previewEl.textContent =
+                `${dts}// Runtime Usage:\n` +
+                `const Base = ecs.get_ccclass_comp_base(); // typeof ECS_DTO_Base\n` +
+                `const Ctor = ecs.get_ccclass_comp(${JSON.stringify(firstComp)}); // typeof ${firstClass}\n` +
+                `const dto = new Ctor();\n`;
+        };
+        updatePreview();
+
+        chkAuto.addEventListener("change", () => {
+            draft.auto_generate_dto = chkAuto.checked;
+            updatePreview();
+        });
+        inpPrefix.addEventListener("input", () => {
+            draft.ccclass_prefix = inpPrefix.value;
+            updatePreview();
+        });
+        inpSuffix.addEventListener("input", () => {
+            draft.ccclass_suffix = inpSuffix.value;
+            updatePreview();
+        });
+
+        pane.querySelector("#btn-reset-settings")?.addEventListener("click", () => {
+            state.draftSettings = { ...DEFAULT_ECS_SETTINGS };
+            renderSettingsEditor();
+        });
+
+        pane.querySelector("#btn-save-settings")?.addEventListener("click", async () => {
+            const next = cloneSchema(state.schema);
+            next.settings = normalizeEcsSettings(draft);
+            const msg = next.settings.auto_generate_dto
+                ? `Saved Settings & generated ${next.components.length} @ccclass DTO(s) in scripts/ecs.dto.ts + _$secret/ecs.dto.d.ts.`
+                : `Saved Settings (Auto-Generate DTOs disabled) & updated _$secret/ecs.dto.d.ts.`;
+            if (await persistSchema(next, msg)) {
+                state.draftSettings = normalizeEcsSettings(state.schema.settings);
+                renderSettingsEditor();
+            }
+        });
+    };
 
     let lastFocusRefresh = 0;
     const onPanelFocus = () => {

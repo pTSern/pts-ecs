@@ -6,6 +6,19 @@ declare namespace pTS {
         /** Augmented by generated ecs.components.d.ts */
         export interface IComponentMap {}
 
+        /** Augmented by generated ecs.dto.d.ts when Settings.auto_generate_dto is enabled */
+        export interface IComponentDtoMap {}
+
+        /** Augmented by generated ecs.dto.d.ts with the base DTO constructor */
+        export interface IComponentDtoMeta {}
+
+        export type TComponentDtoBase = "base" extends keyof IComponentDtoMeta
+            ? IComponentDtoMeta["base"]
+            : (new () => { readonly __comp_name__: string; to_plain(): Record<string, any> });
+
+        /** Instance type of the generated base @ccclass DTO (`ECS_DTO_Base`). */
+        export type Base_CCClass_Component = InstanceType<TComponentDtoBase>;
+
         /** Augmented by generated ecs.worlds.d.ts */
         export interface IWorldComponentMaps {}
 
@@ -123,6 +136,15 @@ declare namespace pTS {
             ): IBoundWorld<IWorldComponentMaps[_K], TWorldEvent<_K>>;
             get_world(name: string): IBoundWorld<any, string | symbol>;
             delete_world(target: TWorldName | IBoundWorld<any, any> | (string & {})): boolean;
+            get_registered_comps_from<_K extends TWorldName>(
+                world_name: _K,
+            ): Array<Extract<keyof IWorldComponentMaps[_K], string>>;
+            get_registered_comps_from(world_name: string | IBoundWorld<any, any>): string[];
+            get_default_comp<_K extends TComponentName>(component_name: _K): IComponentMap[_K];
+            get_default_comp(component_name: string): Record<string, any> | undefined;
+            get_ccclass_comp<_K extends keyof IComponentDtoMap>(component_name: _K): IComponentDtoMap[_K];
+            get_ccclass_comp(component_name: string): (new () => any) | undefined;
+            get_ccclass_comp_base(): TComponentDtoBase;
             match(flag: Uint32Array, req: Uint32Array): boolean;
         }
     }

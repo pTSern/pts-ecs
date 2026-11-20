@@ -1,8 +1,10 @@
 import {
+    buildDtoClassName,
     COMPLEX_MODES,
     IComponentDef,
     IEcsSchemaProfile,
     IValidationResult,
+    normalizeEcsSettings,
     PRIMITIVE_TYPES,
 } from "./schema";
 
@@ -210,6 +212,28 @@ export function validateSchema(schema: IEcsSchemaProfile): IValidationResult {
                         seenEv.add(ev);
                     }
                 }
+            }
+        }
+    }
+
+    // 3. Validate Settings (DTO class naming when enabled)
+    const settings = normalizeEcsSettings(schema.settings);
+    if (settings.auto_generate_dto) {
+        const baseDtoName = buildDtoClassName("Base", settings);
+        if (!isValidIdentifier(baseDtoName)) {
+            errors.push(`Settings: generated base DTO @ccclass name "${baseDtoName}" is not a valid identifier (check prefix/suffix).`);
+        }
+        const seenDtoNames = new Set<string>([baseDtoName]);
+        for (const comp of schema.components) {
+            const cname = (comp.name || "").trim();
+            if (!cname) continue;
+            const dtoName = buildDtoClassName(cname, settings);
+            if (!isValidIdentifier(dtoName)) {
+                errors.push(`Settings: generated DTO @ccclass name "${dtoName}" for "${cname}" is not a valid identifier.`);
+            } else if (seenDtoNames.has(dtoName)) {
+                errors.push(`Settings: duplicate generated DTO @ccclass name "${dtoName}".`);
+            } else {
+                seenDtoNames.add(dtoName);
             }
         }
     }
